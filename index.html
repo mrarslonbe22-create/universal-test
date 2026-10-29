@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="uz" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Edu - Mukammal Test Platformasi</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .dark .glass {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+    </style>
+</head>
+<body class="h-full bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 flex flex-col justify-between">
+
+    <!-- Global Notification Modal -->
+    <div id="toast" class="fixed top-5 right-5 z-50 transform translate-x-full transition-transform duration-300 max-w-sm w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-2xl flex items-center space-x-3">
+        <div id="toast-icon" class="text-2xl"></div>
+        <div>
+            <h4 id="toast-title" class="font-bold text-sm"></h4>
+            <p id="toast-msg" class="text-xs text-slate-500 dark:text-slate-400"></p>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="app" class="flex-1 flex flex-col items-center justify-center">
+        <div class="text-center space-y-3">
+            <div class="w-12 h-12 rounded-2xl bg-indigo-600 animate-spin flex items-center justify-center text-white mx-auto">
+                <i class="fa-solid fa-spinner"></i>
+            </div>
+            <p class="text-sm text-slate-500">Bulut bazasi ulanmoqda...</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="py-4 text-center text-xs text-slate-400 border-t border-slate-200 dark:border-slate-800">
+        &copy; 2026 Universal Edu. Barcha huquqlar himoyalangan. Onlayn Bulut Tizimi.
+    </footer>
+
+    <!-- Firebase App Module Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables provided by environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'universal-edu-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyDummyKeyForLocalTestingOrPlaceholder",
+            authDomain: "universal-edu.firebaseapp.com",
+            projectId: "universal-edu",
+            storageBucket: "universal-edu.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
+        let app, db, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch (e) {
+            console.warn("Firebase init warning:", e);
+        }
+
+        // Global application state
+        window.appState = {
+            currentUser: JSON.parse(localStorage.getItem('uni_edu_user')) || null,
+            users: [],
+            tests: [],
+            results: [],
+            darkMode: localStorage.getItem('uni_edu_theme') === 'dark',
+            apiKey: localStorage.getItem('uni_edu_apikey') || '',
+            activeTest: null,
+            currentQuestionIdx: 0,
+            selectedAnswers: {},
+            timerInterval: null,
+            timeLeft: 0,
+            viewMode: 'home'
+        };
+
+        // Initialize Firebase Auth & Realtime Listeners
+        async function initFirebase() {
+            if (auth) {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (err) {
+                    console.error("Auth error:", err);
+                }
+            }
+
+            // Default initial data if database is empty
+            const defaultTests = [
+                {
+                    id: 't1',
+                    title: 'Matematika: Arifmetika va Tenglamalar',
+                    subject: 'Matematika',
+                    teacher: 'Alisher Ustoz',
+                    duration: 10,
+                    isPaid: false,
+                    promoCode: '',
+                    questions: [
+                        { q: '2x + 5 = 15 tenglamani yeching:', options: ['x = 3', 'x = 5', 'x = 7', 'x = 10'], correct: 1 },
+                        { q: '12 ning kvadrati nechaga teng?', options: ['124', '144', '132', '154'], correct: 1 },
+                        { q: "Uchburchakning burchaklari yig'indisi nech gradus?", options: ['90°', '180°', '360°', '270°'], correct: 1 }
+                    ]
+                },
+                {
+                    id: 't2',
+                    title: 'Kimyo: Davriy qonun va elementlar (VIP)',
+                    subject: 'Kimyo',
+                    teacher: 'Alisher Ustoz',
+                    duration: 15,
+                    isPaid: true,
+                    promoCode: 'CHEM2026',
+                    questions: [
+                        { q: 'Suvning kimyoviy formulasi qaysi?', options: ['H2O', 'CO2', 'NaCl', 'NH3'], correct: 0 },
+                        { q: 'Mendeleyev jadvalidagi 1-element qaysi?', options: ['Geliy', 'Vodorod', 'Kislorod', 'Azot'], correct: 1 },
+                        { q: 'Oltin (Au) atom raqami nechada?', options: ['79', '80', '47', '29'], correct: 0 }
+                    ]
+                }
+            ];
+
+            const defaultUsers = [
+                { id: '1', username: 'admin', pass: 'admin123', name: 'Super Admin', role: 'admin' },
+                { id: '2', username: 'ustoz', pass: 'ustoz123', name: 'Alisher Ustoz', role: 'teacher' },
+                { id: '3', username: 'oquvchi', pass: 'oquvchi123', name: 'Jasur Oqilov', role: 'student' }
+            ];
+
+            if (db) {
+                // Listen to Tests collection
+                const testsColl = collection(db, 'artifacts', appId, 'public', 'data', 'tests');
+                onSnapshot(testsColl, (snapshot) => {
+                    if (snapshot.empty) {
+                        // Seed default tests
+                        defaultTests.forEach(t => {
+                            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tests', t.id), t);
+                        });
+                    } else {
+                        window.appState.tests = [];
+                        snapshot.forEach(docSnap => {
+                            window.appState.tests.push(docSnap.data());
+                        });
+                    }
+                    window.renderApp();
+                }, (err) => console.error("Tests listener error:", err));
+
+                // Listen to Users collection
+                const usersColl = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+                onSnapshot(usersColl, (snapshot) => {
+                    if (snapshot.empty) {
+                        defaultUsers.forEach(u => {
+                            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.id), u);
+                        });
+                    } else {
+                        window.appState.users = [];
+                        snapshot.forEach(docSnap => {
+                            window.appState.users.push(docSnap.data());
+                        });
+                    }
+                    window.renderApp();
+                }, (err) => console.error("Users listener error:", err));
+
+                // Listen to Results collection
+                const resultsColl = collection(db, 'artifacts', appId, 'public', 'data', 'results');
+                onSnapshot(resultsColl, (snapshot) => {
+                    window.appState.results = [];
+                    snapshot.forEach(docSnap => {
+                        window.appState.results.push(docSnap.data());
+                    });
+                    window.renderApp();
+                }, (err) => console.error("Results listener error:", err));
+            } else {
+                window.appState.tests = defaultTests;
+                window.appState.users = defaultUsers;
+                window.appState.results = [];
+                window.renderApp();
+            }
+        }
+
+        // Expose global database helpers
+        window.dbSaveTest = async (test) => {
+            if (db) {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tests', test.id), test);
+            } else {
+                window.appState.tests.push(test);
+            }
+        };
+
+        window.dbDeleteTest = async (testId) => {
+            if (db) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tests', testId));
+            } else {
+                window.appState.tests = window.appState.tests.filter(t => t.id !== testId);
+            }
+        };
+
+        window.dbSaveUser = async (user) => {
+            if (db) {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.id), user);
+            } else {
+                window.appState.users.push(user);
+            }
+        };
+
+        window.dbSaveResult = async (result) => {
+            if (db) {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'results', result.id), result);
+            } else {
+                window.appState.results.push(result);
+            }
+        };
+
+        initFirebase();
+    </script>
+
+    <!-- JavaScript Application UI Logic -->
+    <script>
+        function toggleTheme() {
+            window.appState.darkMode = !window.appState.darkMode;
+            localStorage.setItem('uni_edu_theme', window.appState.darkMode ? 'dark' : 'light');
+            if (window.appState.darkMode) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            window.renderApp();
+        }
+
+        if (window.appState && window.appState.darkMode) {
+            document.documentElement.classList.add('dark');
+        }
+
+        function showToast(title, msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            if (!toast) return;
+            const icon = document.getElementById('toast-icon');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-msg').innerText = msg;
+            
+            icon.innerHTML = type === 'success' ? '<i class="fa-solid fa-circle-check text-emerald-500"></i>' : '<i class="fa-solid fa-circle-exclamation text-rose-500"></i>';
+            toast.classList.remove('translate-x-full');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+            }, 3500);
+        }
+
+        window.renderApp = function() {
+            const app = document.getElementById('app');
+            if (!app) return;
+            app.innerHTML = '';
+            app.className = 'flex-1 flex flex-col w-full';
+
+            // Render Header
+            app.appendChild(createHeader());
+
+            // Render Main Content
+            const mainContent = document.createElement('main');
+            mainContent.className = 'flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6';
+
+            if (!window.appState.currentUser) {
+                mainContent.appendChild(renderAuthPage());
+            } else {
+                if (window.appState.viewMode === 'test_solve' && window.appState.activeTest) {
+                    mainContent.appendChild(renderTestSolver());
+                } else if (window.appState.viewMode === 'result_view' && window.appState.activeResult) {
+                    mainContent.appendChild(renderResultDetails());
+                } else {
+                    mainContent.appendChild(renderDashboard());
+                }
+            }
+
+            app.appendChild(mainContent);
+        }
+
+        function createHeader() {
+            const header = document.createElement('header');
+            header.className = 'glass sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between shadow-sm w-full';
+            
+            let userBadge = '';
+            if (window.appState.currentUser) {
+                const roleNames = { admin: 'Super Admin', teacher: 'Ustoz', student: 'O\'quvchi' };
+                const roleColors = { admin: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', teacher: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', student: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' };
+                userBadge = `
+                    <div class="flex items-center space-x-3">
+                        <div class="text-right hidden sm:block">
+                            <div class="font-semibold text-sm">${window.appState.currentUser.name}</div>
+                            <span class="text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[window.appState.currentUser.role]}">${roleNames[window.appState.currentUser.role]}</span>
+                        </div>
+                        <button onclick="logout()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950 transition text-slate-600 dark:text-slate-300" title="Chiqish">
+                            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                        </button>
+                    </div>
+                `;
+            }
+
+            header.innerHTML = `
+                <div class="flex items-center space-x-3 cursor-pointer" onclick="goHome()">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30">
+                        <i class="fa-solid fa-graduation-cap"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">Universal Edu</h1>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Onlayn Bulut Test Tizimi</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleTheme()" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:scale-105 transition shadow-sm">
+                        <i class="fa-solid ${window.appState.darkMode ? 'fa-sun text-amber-400' : 'fa-moon text-indigo-600'}"></i>
+                    </button>
+                    ${userBadge}
+                </div>
+            `;
+            return header;
+        }
+
+        window.goHome = function() {
+            window.appState.viewMode = 'dashboard';
+            window.appState.activeTest = null;
+            window.renderApp();
+        }
+
+        window.logout = function() {
+            window.appState.currentUser = null;
+            localStorage.removeItem('uni_edu_user');
+            window.appState.viewMode = 'home';
+            window.renderApp();
+            showToast('Tizimdan chiqildi', 'Xayr, salomat bo\'ling!', 'success');
+        }
+
+        function renderAuthPage() {
+            const container = document.createElement('div');
+            container.className = 'max-w-md mx-auto my-auto w-full p-8 glass rounded-3xl shadow-xl border border-slate-200/60 dark:border-slate-800 my-16';
+
+            let isReg = window.appState.viewMode === 'register';
+
+            container.innerHTML = `
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-bold">${isReg ? 'Ro\'yxatdan o\'tish' : 'Tizimga kirish'}</h2>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">${isReg ? 'Yangi o\'quvchi hisobini yarating' : 'Bulutli ma\'lumotlar bazasiga kirish'}</p>
+                </div>
+                <form id="auth-form" class="space-y-4">
+                    ${isReg ? `
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">F.I.Sh (Ism Familiya)</label>
+                            <input type="text" id="reg-name" required class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="Masalan: Anvar Toshmatov">
+                        </div>
+                    ` : ''}
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Foydalanuvchi nomi (Login)</label>
+                        <input type="text" id="auth-user" required class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="Loginni kiriting">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Parol</label>
+                        <input type="password" id="auth-pass" required class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="••••••••">
+                    </div>
+                    <button type="submit" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-lg shadow-indigo-600/30 transition text-sm">
+                        ${isReg ? 'Ro\'yxatdan o\'tish' : 'Kirish'}
+                    </button>
+                </form>
+                <div class="mt-6 text-center">
+                    <button onclick="toggleAuthMode()" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">
+                        ${isReg ? 'Hisobingiz bormi? Kirish' : 'Hali ro\'yxatdan o\'tmaganmisiz? Ro\'yxatdan o\'tish'}
+                    </button>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-400 text-center">
+                    Demo akkauntlar: <br>
+                    Admin: <b>admin / admin123</b> | Ustoz: <b>ustoz / ustoz123</b> | O'quvchi: <b>oquvchi / oquvchi123</b>
+                </div>
+            `;
+
+            container.querySelector('#auth-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const username = container.querySelector('#auth-user').value.trim();
+                const pass = container.querySelector('#auth-pass').value.trim();
+
+                if (isReg) {
+                    const name = container.querySelector('#reg-name').value.trim();
+                    if (window.appState.users.some(u => u.username === username)) {
+                        showToast('Xatolik', 'Bu login allaqachon band qilingan!', 'error');
+                        return;
+                    }
+                    const newUser = { id: 'u_' + Date.now(), username, pass, name, role: 'student' };
+                    await window.dbSaveUser(newUser);
+                    window.appState.currentUser = newUser;
+                    localStorage.setItem('uni_edu_user', JSON.stringify(newUser));
+                    showToast('Xush kelibsiz!', 'Muvaffaqiyatli ro\'yxatdan o\'tdingiz.', 'success');
+                    window.renderApp();
+                } else {
+                    const found = window.appState.users.find(u => u.username === username && u.pass === pass);
+                    if (found) {
+                        window.appState.currentUser = found;
+                        localStorage.setItem('uni_edu_user', JSON.stringify(found));
+                        showToast('Xush kelibsiz!', `${found.name} sifatida kirdingiz.`, 'success');
+                        window.renderApp();
+                    } else {
+                        showToast('Xatolik', 'Login yoki parol noto\'g\'ri!', 'error');
+                    }
+                }
+            };
+
+            return container;
+        }
+
+        window.toggleAuthMode = function() {
+            window.appState.viewMode = window.appState.viewMode === 'register' ? 'home' : 'register';
+            window.renderApp();
+        }
+
+        function renderDashboard() {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'space-y-6';
+
+            if (window.appState.currentUser.role === 'admin') {
+                wrapper.appendChild(renderAdminPanel());
+            } else if (window.appState.currentUser.role === 'teacher') {
+                wrapper.appendChild(renderTeacherPanel());
+            } else {
+                wrapper.appendChild(renderStudentPanel());
+            }
+
+            return wrapper;
+        }
+
+        function renderStudentPanel() {
+            const panel = document.createElement('div');
+            panel.className = 'space-y-8';
+
+            const subjects = ['Barchasi', 'Matematika', 'Kimyo', 'Biologiya', 'Tarix', 'Huquq', 'Ingliz tili', 'Ona tili'];
+            let selectedSubject = window.currentSubjectFilter || 'Barchasi';
+
+            panel.innerHTML = `
+                <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-indigo-600 to-violet-600 p-8 text-white shadow-xl shadow-indigo-500/20">
+                    <div class="relative z-10 max-w-xl">
+                        <span class="px-3 py-1 rounded-full bg-white/20 text-xs font-semibold uppercase tracking-wider backdrop-blur-md">O'quvchi Portali (Bulutli)</span>
+                        <h2 class="text-3xl font-bold mt-3">Salom, ${window.appState.currentUser.name}!</h2>
+                        <p class="text-indigo-100 text-sm mt-2 leading-relaxed">Barcha foydalanuvchilar bilan umumiy reytingda raqobatlashing va yangi testlarni yeching!</p>
+                    </div>
+                    <div class="absolute right-[-20px] bottom-[-20px] opacity-10 text-9xl">
+                        <i class="fa-solid fa-book-open-reader"></i>
+                    </div>
+                </div>
+
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div class="flex items-center space-x-2 overflow-x-auto w-full pb-2 md:pb-0">
+                        ${subjects.map(sub => `
+                            <button onclick="filterSubject('${sub}')" class="px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition ${selectedSubject === sub ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30' : 'glass hover:bg-slate-200 dark:hover:bg-slate-800'}">
+                                ${sub}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2 space-y-4">
+                        <h3 class="text-lg font-bold flex items-center justify-between">
+                            <span>Mavjud Testlar</span>
+                            <span class="text-xs font-normal text-slate-500">Jami: ${window.appState.tests.length} ta</span>
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="tests-container"></div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800">
+                            <h3 class="font-bold text-base mb-4 flex items-center justify-between">
+                                <span>Umumiy Reyting</span>
+                                <i class="fa-solid fa-trophy text-amber-500"></i>
+                            </h3>
+                            <div class="space-y-3" id="leaderboard-list"></div>
+                        </div>
+
+                        <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800">
+                            <h3 class="font-bold text-base mb-4 flex items-center justify-between">
+                                <span>Mening Natijalarim</span>
+                                <i class="fa-solid fa-clock-rotate-left text-indigo-500"></i>
+                            </h3>
+                            <div class="space-y-3 max-h-64 overflow-y-auto pr-1" id="history-list"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const testsContainer = panel.querySelector('#tests-container');
+            const filteredTests = selectedSubject === 'Barchasi' ? window.appState.tests : window.appState.tests.filter(t => t.subject === selectedSubject);
+
+            if (filteredTests.length === 0) {
+                testsContainer.innerHTML = `<div class="col-span-full py-12 text-center text-slate-400 text-sm glass rounded-2xl">Bu fandan hozircha testlar mavjud emas.</div>`;
+            } else {
+                filteredTests.forEach(test => {
+                    const card = document.createElement('div');
+                    card.className = 'glass p-5 rounded-2xl shadow-sm border border-slate-200/60 dark:border-slate-800 flex flex-col justify-between hover:border-indigo-500 transition group';
+                    card.innerHTML = `
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">${test.subject}</span>
+                                ${test.isPaid ? '<span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400"><i class="fa-solid fa-lock mr-1"></i> Pulli (Promo)</span>' : '<span class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Bepul</span>'}
+                            </div>
+                            <h4 class="font-bold text-base text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition">${test.title}</h4>
+                            <p class="text-xs text-slate-500 mt-1">Ustoz: ${test.teacher} | Savollar: ${test.questions.length} ta</p>
+                        </div>
+                        <div class="mt-6 flex items-center justify-between pt-4 border-t border-slate-200/50 dark:border-slate-800">
+                            <span class="text-xs text-slate-400"><i class="fa-regular fa-clock mr-1"></i> ${test.duration} daqiqa</span>
+                            <button onclick="startTest('${test.id}')" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-500/30 transition">
+                                Testni boshlash
+                            </button>
+                        </div>
+                    `;
+                    testsContainer.appendChild(card);
+                });
+            }
+
+            const leaderboardList = panel.querySelector('#leaderboard-list');
+            const userScores = {};
+            window.appState.results.forEach(res => {
+                if (!userScores[res.userName]) userScores[res.userName] = { totalCorrect: 0, testsCount: 0 };
+                userScores[res.userName].totalCorrect += res.correctCount;
+                userScores[res.userName].testsCount += 1;
+            });
+
+            const sortedUsers = Object.keys(userScores).map(name => ({
+                name,
+                score: userScores[name].totalCorrect,
+                count: userScores[name].testsCount
+            })).sort((a, b) => b.score - a.score).slice(0, 5);
+
+            if (sortedUsers.length === 0) {
+                leaderboardList.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Hozircha reyting ma'lumotlari yo'q.</p>`;
+            } else {
+                sortedUsers.forEach((u, idx) => {
+                    const medals = ['text-amber-500', 'text-slate-400', 'text-amber-700'];
+                    leaderboardList.innerHTML += `
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800 text-xs">
+                            <div class="flex items-center space-x-3">
+                                <span class="font-bold w-5 text-center ${medals[idx] || 'text-slate-500'}">#${idx+1}</span>
+                                <span class="font-semibold">${u.name}</span>
+                            </div>
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold">${u.score} ball</span>
+                        </div>
+                    `;
+                });
+            }
+
+            const historyList = panel.querySelector('#history-list');
+            const myResults = window.appState.results.filter(r => r.userId === window.appState.currentUser.id);
+
+            if (myResults.length === 0) {
+                historyList.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Siz hali birorta ham test yechmagansiz.</p>`;
+            } else {
+                myResults.slice(-5).reverse().forEach(res => {
+                    historyList.innerHTML += `
+                        <div class="p-3 rounded-xl bg-white/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800 flex items-center justify-between text-xs">
+                            <div>
+                                <h5 class="font-semibold text-slate-800 dark:text-slate-200">${res.testTitle}</h5>
+                                <span class="text-[10px] text-slate-400">${res.date}</span>
+                            </div>
+                            <div class="text-right">
+                                <span class="font-bold text-indigo-600 dark:text-indigo-400">${res.correctCount}/${res.totalQuestions}</span>
+                                <button onclick="viewResultDetails('${res.id}')" class="block text-[10px] text-slate-500 hover:underline">Batafsil</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            return panel;
+        }
+
+        window.filterSubject = function(sub) {
+            window.currentSubjectFilter = sub;
+            window.renderApp();
+        }
+
+        window.startTest = function(testId) {
+            const test = window.appState.tests.find(t => t.id === testId);
+            if (!test) return;
+
+            if (test.isPaid) {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4';
+                modal.innerHTML = `
+                    <div class="glass p-6 rounded-3xl max-w-md w-full space-y-4 border border-slate-200 dark:border-slate-800 shadow-2xl">
+                        <div class="text-center">
+                            <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto text-xl mb-2">
+                                <i class="fa-solid fa-lock"></i>
+                            </div>
+                            <h3 class="font-bold text-lg">Bu pulli test</h3>
+                            <p class="text-xs text-slate-500 mt-1">Ushbu testni yechish uchun promo-kod kerak yoki @Maxsudali_00 telegram lichkasidan oylik obuna sotib oling.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Promo-kodni kiriting</label>
+                            <input type="text" id="promo-input" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Masalan: CHEM2026">
+                        </div>
+                        <div class="flex space-x-3">
+                            <a href="https://t.me/Maxsudali_00" target="_blank" class="flex-1 py-3 px-4 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs text-center transition flex items-center justify-center space-x-2">
+                                <i class="fa-brands fa-telegram"></i> <span>Obuna sotib olish</span>
+                            </a>
+                            <button id="verify-promo" class="flex-1 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition">
+                                Tasdiqlash
+                            </button>
+                        </div>
+                        <button onclick="closeModal()" class="w-full text-xs text-slate-400 hover:underline pt-2">Orqaga qaytish</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                modal.querySelector('#verify-promo').onclick = () => {
+                    const code = modal.querySelector('#promo-input').value.trim();
+                    if (code === test.promoCode || code === 'ADMINVIP2026') {
+                        document.body.removeChild(modal);
+                        showToast('Muvaffaqiyatli!', 'Promo-kod tasdiqlandi. Test boshlanmoqda.', 'success');
+                        initTestSession(test);
+                    } else {
+                        showToast('Xatolik', 'Promo-kod noto\'g\'ri!', 'error');
+                    }
+                };
+                return;
+            }
+
+            initTestSession(test);
+        }
+
+        window.closeModal = function() {
+            const modals = document.querySelectorAll('.fixed.inset-0');
+            modals.forEach(m => m.remove());
+        }
+
+        function initTestSession(test) {
+            window.appState.activeTest = test;
+            window.appState.currentQuestionIdx = 0;
+            window.appState.selectedAnswers = {};
+            window.appState.timeLeft = test.duration * 60;
+            window.appState.viewMode = 'test_solve';
+            window.renderApp();
+
+            if (window.appState.timerInterval) clearInterval(window.appState.timerInterval);
+            window.appState.timerInterval = setInterval(() => {
+                window.appState.timeLeft--;
+                const timerEl = document.getElementById('test-timer');
+                if (timerEl) {
+                    const m = Math.floor(window.appState.timeLeft / 60);
+                    const s = window.appState.timeLeft % 60;
+                    timerEl.innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+                }
+                if (window.appState.timeLeft <= 0) {
+                    clearInterval(window.appState.timerInterval);
+                    finishTest();
+                }
+            }, 1000);
+        }
+
+        function renderTestSolver() {
+            const test = window.appState.activeTest;
+            const q = test.questions[window.appState.currentQuestionIdx];
+            const container = document.createElement('div');
+            container.className = 'max-w-3xl mx-auto space-y-6';
+
+            const m = Math.floor(window.appState.timeLeft / 60);
+            const s = window.appState.timeLeft % 60;
+
+            container.innerHTML = `
+                <div class="glass p-5 rounded-3xl flex items-center justify-between border border-slate-200/60 dark:border-slate-800 shadow-sm">
+                    <div>
+                        <span class="text-xs px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold">${test.subject}</span>
+                        <h3 class="font-bold text-lg mt-1">${test.title}</h3>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="px-4 py-2 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold text-sm flex items-center space-x-2">
+                            <i class="fa-regular fa-clock"></i>
+                            <span id="test-timer">${m}:${s < 10 ? '0' : ''}${s}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass p-8 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-6">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold text-slate-400">Savol ${window.appState.currentQuestionIdx + 1} / ${test.questions.length}</span>
+                        <div class="flex space-x-1">
+                            ${test.questions.map((_, i) => `
+                                <div class="w-6 h-2 rounded-full ${i === window.appState.currentQuestionIdx ? 'bg-indigo-600' : (window.appState.selectedAnswers[i] !== undefined ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-800')}"></div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <h4 class="text-lg font-bold leading-relaxed">${q.q}</h4>
+
+                    <div class="space-y-3" id="options-container">
+                        ${q.options.map((opt, idx) => `
+                            <button onclick="selectOption(${idx})" class="w-full text-left p-4 rounded-2xl border transition flex items-center space-x-4 ${window.appState.selectedAnswers[window.appState.currentQuestionIdx] === idx ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'border-slate-200 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-600 bg-white/50 dark:bg-slate-900/50'}">
+                                <span class="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${window.appState.selectedAnswers[window.appState.currentQuestionIdx] === idx ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}">${String.fromCharCode(65 + idx)}</span>
+                                <span class="text-sm font-medium">${opt}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    <div class="flex items-center justify-between pt-4 border-t border-slate-200/50 dark:border-slate-800">
+                        <button onclick="prevQuestion()" ${window.appState.currentQuestionIdx === 0 ? 'disabled' : ''} class="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition">
+                            <i class="fa-solid fa-arrow-left mr-2"></i> Oldingi
+                        </button>
+                        ${window.appState.currentQuestionIdx < test.questions.length - 1 ? `
+                            <button onclick="nextQuestion()" class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-500/30 transition">
+                                Keyingi <i class="fa-solid fa-arrow-right ml-2"></i>
+                            </button>
+                        ` : `
+                            <button onclick="finishTest()" class="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-md shadow-emerald-500/30 transition">
+                                Yakunlash <i class="fa-solid fa-check ml-2"></i>
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+
+            return container;
+        }
+
+        window.selectOption = function(idx) {
+            window.appState.selectedAnswers[window.appState.currentQuestionIdx] = idx;
+            window.renderApp();
+        }
+
+        window.nextQuestion = function() {
+            if (window.appState.currentQuestionIdx < window.appState.activeTest.questions.length - 1) {
+                window.appState.currentQuestionIdx++;
+                window.renderApp();
+            }
+        }
+
+        window.prevQuestion = function() {
+            if (window.appState.currentQuestionIdx > 0) {
+                window.appState.currentQuestionIdx--;
+                window.renderApp();
+            }
+        }
+
+        window.finishTest = async function() {
+            if (window.appState.timerInterval) clearInterval(window.appState.timerInterval);
+
+            const test = window.appState.activeTest;
+            let correctCount = 0;
+            test.questions.forEach((q, idx) => {
+                if (window.appState.selectedAnswers[idx] === q.correct) {
+                    correctCount++;
+                }
+            });
+
+            const resultObj = {
+                id: 'res_' + Date.now(),
+                userId: window.appState.currentUser.id,
+                userName: window.appState.currentUser.name,
+                testId: test.id,
+                testTitle: test.title,
+                subject: test.subject,
+                correctCount,
+                totalQuestions: test.questions.length,
+                answers: {...window.appState.selectedAnswers},
+                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+
+            await window.dbSaveResult(resultObj);
+            window.appState.activeResult = resultObj;
+            window.appState.viewMode = 'result_view';
+            window.renderApp();
+            showToast('Test yakunlandi!', `Siz ${test.questions.length} tadan ${correctCount} ta to'g'ri topdingiz.`, 'success');
+        }
+
+        window.viewResultDetails = function(resultId) {
+            const res = window.appState.results.find(r => r.id === resultId);
+            if (!res) return;
+            window.appState.activeResult = res;
+            window.appState.activeTest = window.appState.tests.find(t => t.id === res.testId);
+            window.appState.viewMode = 'result_view';
+            window.renderApp();
+        }
+
+        function renderResultDetails() {
+            const res = window.appState.activeResult;
+            const test = window.appState.tests.find(t => t.id === res.testId) || { questions: [] };
+            const container = document.createElement('div');
+            container.className = 'max-w-3xl mx-auto space-y-6';
+
+            const percentage = Math.round((res.correctCount / res.totalQuestions) * 100);
+
+            container.innerHTML = `
+                <div class="glass p-8 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 text-center space-y-4">
+                    <div class="w-20 h-20 rounded-3xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto text-3xl shadow-inner">
+                        <i class="fa-solid fa-award"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold">Natijalar Tahlili</h2>
+                        <p class="text-xs text-slate-500 mt-1">${res.testTitle} (${res.subject})</p>
+                    </div>
+                    <div class="flex justify-center items-center space-x-8 py-4">
+                        <div class="text-center">
+                            <span class="text-xs text-slate-400 block">To'g'ri javoblar</span>
+                            <span class="text-2xl font-extrabold text-emerald-600">${res.correctCount} / ${res.totalQuestions}</span>
+                        </div>
+                        <div class="h-10 w-px bg-slate-200 dark:bg-slate-800"></div>
+                        <div class="text-center">
+                            <span class="text-xs text-slate-400 block">Foiz ko'rsatkichi</span>
+                            <span class="text-2xl font-extrabold text-indigo-600">${percentage}%</span>
+                        </div>
+                    </div>
+                    <button onclick="goHome()" class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-500/30 transition">
+                        Bosh sahifaga qaytish
+                    </button>
+                </div>
+
+                ${test.questions.length > 0 ? `
+                    <div class="space-y-4">
+                        <h3 class="font-bold text-base">Savollar va Javoblar</h3>
+                        ${test.questions.map((q, qIdx) => {
+                            const userAns = res.answers[qIdx];
+                            const isCorrect = userAns === q.correct;
+                            return `
+                                <div class="glass p-6 rounded-2xl border ${isCorrect ? 'border-emerald-500/30 bg-emerald-50/10' : 'border-rose-500/30 bg-rose-50/10'} space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-bold text-slate-400">Savol ${qIdx + 1}</span>
+                                        <span class="text-xs px-2.5 py-1 rounded-lg font-bold ${isCorrect ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}">
+                                            ${isCorrect ? 'To\'g\'ri' : 'Noto\'g\'ri'}
+                                        </span>
+                                    </div>
+                                    <h4 class="font-bold text-sm">${q.q}</h4>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                                        ${q.options.map((opt, oIdx) => {
+                                            let badgeClass = 'border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50';
+                                            if (oIdx === q.correct) badgeClass = 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold';
+                                            else if (oIdx === userAns && !isCorrect) badgeClass = 'border-rose-500 bg-rose-500/10 text-rose-700 dark:text-rose-300 font-bold';
+                                            return `
+                                                <div class="p-3 rounded-xl border text-xs flex items-center space-x-3 ${badgeClass}">
+                                                    <span class="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px]">${String.fromCharCode(65 + oIdx)}</span>
+                                                    <span>${opt}</span>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
+            `;
+
+            return container;
+        }
+
+        function renderTeacherPanel() {
+            const panel = document.createElement('div');
+            panel.className = 'space-y-8';
+
+            panel.innerHTML = `
+                <div class="rounded-3xl bg-gradient-to-r from-amber-500 to-orange-600 p-8 text-white shadow-xl shadow-orange-500/20">
+                    <span class="px-3 py-1 rounded-full bg-white/20 text-xs font-semibold uppercase tracking-wider backdrop-blur-md">Ustoz Paneli (Bulutli)</span>
+                    <h2 class="text-3xl font-bold mt-3">Xush kelibsiz, ${window.appState.currentUser.name}!</h2>
+                    <p class="text-amber-100 text-sm mt-2 leading-relaxed">Siz tuzgan testlar darhol dunyoning istalgan nuqtasidan kirgan barcha o'quvchilarga ko'rinadi.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-4">
+                        <h3 class="font-bold text-lg flex items-center space-x-2">
+                            <i class="fa-solid fa-pen-to-square text-indigo-500"></i>
+                            <span>Qo'lda Test Tuzish</span>
+                        </h3>
+                        <form id="manual-test-form" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Fan</label>
+                                <select id="m-subject" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <option value="Matematika">Matematika</option>
+                                    <option value="Kimyo">Kimyo</option>
+                                    <option value="Biologiya">Biologiya</option>
+                                    <option value="Tarix">Tarix</option>
+                                    <option value="Huquq">Huquq</option>
+                                    <option value="Ingliz tili">Ingliz tili</option>
+                                    <option value="Ona tili">Ona tili</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Test Nomi</label>
+                                <input type="text" id="m-title" required class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Masalan: Kvadrat tenglamalar">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Vaqt (daqiqa)</label>
+                                    <input type="number" id="m-duration" value="10" min="1" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Rejim</label>
+                                    <select id="m-ispaid" onchange="togglePromoField(this.value)" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <option value="false">Bepul</option>
+                                        <option value="true">Pulli (Promo-kodli)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="m-promo-box" class="hidden">
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Promo-kod</label>
+                                <input type="text" id="m-promocode" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Masalan: MATHVIP">
+                            </div>
+
+                            <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <h4 class="font-bold text-sm">Savollar (<span id="q-count-badge">1</span>)</h4>
+                                    <button type="button" onclick="addManualQuestionField()" class="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 text-xs font-bold hover:bg-indigo-500/20 transition">
+                                        <i class="fa-solid fa-plus mr-1"></i> Qo'shish
+                                    </button>
+                                </div>
+                                <div id="manual-questions-container" class="space-y-4 max-h-96 overflow-y-auto pr-2">
+                                    <div class="p-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 space-y-3 q-item">
+                                        <input type="text" placeholder="Savol matni..." class="q-text w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none" required>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <input type="text" placeholder="A variant" class="opt-0 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                                            <input type="text" placeholder="B variant" class="opt-1 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                                            <input type="text" placeholder="C variant" class="opt-2 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                                            <input type="text" placeholder="D variant" class="opt-3 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                                        </div>
+                                        <div class="flex items-center justify-between text-xs">
+                                            <span class="text-slate-400">To'g'ri javob:</span>
+                                            <select class="correct-idx px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                                                <option value="0">A variant</option>
+                                                <option value="1">B variant</option>
+                                                <option value="2">C variant</option>
+                                                <option value="3">D variant</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shadow-indigo-500/30 transition">
+                                Testni bulutga saqlash
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-4">
+                        <h3 class="font-bold text-lg flex items-center space-x-2">
+                            <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                            <span>AI orqali test yaratish</span>
+                        </h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">AI Modeli</label>
+                                <select id="ai-provider" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <option value="gemini">Google Gemini (3 Flash)</option>
+                                    <option value="deepseek">DeepSeek Chat</option>
+                                    <option value="openai">OpenAI GPT-4o</option>
+                                    <option value="claude">Anthropic Claude 3.5</option>
+                                    <option value="grok">xAI Grok 2</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">API Kaliti</label>
+                                <div class="flex space-x-2">
+                                    <input type="password" id="ai-apikey" value="${window.appState.apiKey}" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="API key...">
+                                    <button onclick="saveApiKey()" class="px-4 py-3 rounded-xl bg-slate-200 dark:bg-slate-800 font-semibold text-xs hover:bg-slate-300 transition">Saqlash</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Fan</label>
+                                <select id="ai-subject" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <option value="Matematika">Matematika</option>
+                                    <option value="Kimyo">Kimyo</option>
+                                    <option value="Biologiya">Biologiya</option>
+                                    <option value="Tarix">Tarix</option>
+                                    <option value="Huquq">Huquq</option>
+                                    <option value="Ingliz tili">Ingliz tili</option>
+                                    <option value="Ona tili">Ona tili</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Mavzu</label>
+                                <textarea id="ai-topic" rows="3" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Masalan: Fotosintez jarayoni..."></textarea>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Daraja</label>
+                                    <select id="ai-level" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                        <option value="past">Past</option>
+                                        <option value="orta" selected>O'rta</option>
+                                        <option value="yuqori">Yuqori</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Savollar soni</label>
+                                    <input type="number" id="ai-count" value="3" min="1" max="10" class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                </div>
+                            </div>
+                            <button onclick="generateAITest()" class="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold text-xs shadow-md shadow-orange-500/30 transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                <span>AI orqali test generatsiya qilish</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-4">
+                    <h3 class="font-bold text-lg">Mening Testlarim</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="teacher-tests-list"></div>
+                </div>
+            `;
+
+            const mForm = panel.querySelector('#manual-test-form');
+            mForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const subject = panel.querySelector('#m-subject').value;
+                const title = panel.querySelector('#m-title').value.trim();
+                const duration = parseInt(panel.querySelector('#m-duration').value);
+                const isPaid = panel.querySelector('#m-ispaid').value === 'true';
+                const promoCode = isPaid ? panel.querySelector('#m-promocode').value.trim() : '';
+
+                const qItems = panel.querySelectorAll('.q-item');
+                const questions = [];
+                qItems.forEach(item => {
+                    const q = item.querySelector('.q-text').value.trim();
+                    const options = [
+                        item.querySelector('.opt-0').value.trim(),
+                        item.querySelector('.opt-1').value.trim(),
+                        item.querySelector('.opt-2').value.trim(),
+                        item.querySelector('.opt-3').value.trim()
+                    ];
+                    const correct = parseInt(item.querySelector('.correct-idx').value);
+                    questions.push({ q, options, correct });
+                });
+
+                const newTest = {
+                    id: 't_' + Date.now(),
+                    title,
+                    subject,
+                    teacher: window.appState.currentUser.name,
+                    duration,
+                    isPaid,
+                    promoCode,
+                    questions
+                };
+
+                await window.dbSaveTest(newTest);
+                showToast('Muvaffaqiyatli!', 'Test bulutga saqlandi va barcha o\'quvchilarga tarqatildi!', 'success');
+                window.renderApp();
+            };
+
+            const tTestsList = panel.querySelector('#teacher-tests-list');
+            const teacherTests = window.appState.tests.filter(t => t.teacher === window.appState.currentUser.name || window.appState.currentUser.role === 'admin');
+
+            if (teacherTests.length === 0) {
+                tTestsList.innerHTML = `<p class="col-span-full text-xs text-slate-400 text-center py-6">Siz hali test yaratmagansiz.</p>`;
+            } else {
+                teacherTests.forEach(test => {
+                    tTestsList.innerHTML += `
+                        <div class="p-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <div>
+                                <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 font-bold">${test.subject}</span>
+                                <h4 class="font-bold text-sm mt-1">${test.title}</h4>
+                                <p class="text-[10px] text-slate-400 mt-0.5">Savollar: ${test.questions.length} ta | ${test.isPaid ? 'Pulli' : 'Bepul'}</p>
+                            </div>
+                            <button onclick="deleteTest('${test.id}')" class="p-2 rounded-xl bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 transition text-xs" title="O'chirish">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                });
+            }
+
+            return panel;
+        }
+
+        window.togglePromoField = function(val) {
+            const box = document.getElementById('m-promo-box');
+            if (val === 'true') box.classList.remove('hidden');
+            else box.classList.add('hidden');
+        }
+
+        window.addManualQuestionField = function() {
+            const container = document.getElementById('manual-questions-container');
+            const count = container.querySelectorAll('.q-item').length + 1;
+            document.getElementById('q-count-badge').innerText = count;
+
+            const div = document.createElement('div');
+            div.className = 'p-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 space-y-3 q-item';
+            div.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400">Savol #${count}</span>
+                    <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-rose-500 text-xs hover:underline"><i class="fa-solid fa-xmark"></i> O'chirish</button>
+                </div>
+                <input type="text" placeholder="Savol matni..." class="q-text w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none" required>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" placeholder="A variant" class="opt-0 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                    <input type="text" placeholder="B variant" class="opt-1 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                    <input type="text" placeholder="C variant" class="opt-2 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                    <input type="text" placeholder="D variant" class="opt-3 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs" required>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-slate-400">To'g'ri javob:</span>
+                    <select class="correct-idx px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
+                        <option value="0">A variant</option>
+                        <option value="1">B variant</option>
+                        <option value="2">C variant</option>
+                        <option value="3">D variant</option>
+                    </select>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        window.saveApiKey = function() {
+            const key = document.getElementById('ai-apikey').value.trim();
+            window.appState.apiKey = key;
+            localStorage.setItem('uni_edu_apikey', key);
+            showToast('Saqlandi', 'API kalit muvaffaqiyatli saqlandi.', 'success');
+        }
+
+        window.generateAITest = async function() {
+            const provider = document.getElementById('ai-provider').value;
+            const subject = document.getElementById('ai-subject').value;
+            const topic = document.getElementById('ai-topic').value.trim();
+            const level = document.getElementById('ai-level').value;
+            const count = parseInt(document.getElementById('ai-count').value);
+
+            if (!topic) {
+                showToast('Diqqat', 'Iltimos, mavzu kiriting!', 'error');
+                return;
+            }
+
+            showToast('AI ishlamoqda...', `${provider.toUpperCase()} test tuzmoqda...`, 'success');
+
+            let questions = [];
+            const prompt = `Create ${count} multiple choice test questions in Uzbek about subject "${subject}", topic "${topic}", level "${level}". Return strict JSON array format: [{"q": "question text", "options": ["opt1", "opt2", "opt3", "opt4"], "correct": 0}].`;
+
+            if (window.appState.apiKey) {
+                try {
+                    let apiUrl = '';
+                    let headers = { 'Content-Type': 'application/json' };
+                    let body = {};
+
+                    if (provider === 'gemini') {
+                        apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${window.appState.apiKey}`;
+                        body = {
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: { responseMimeType: 'application/json' }
+                        };
+                    } else if (provider === 'openai') {
+                        apiUrl = 'https://api.openai.com/v1/chat/completions';
+                        headers['Authorization'] = `Bearer ${window.appState.apiKey}`;
+                        body = { model: 'gpt-4o', messages: [{ role: 'user', content: prompt }] };
+                    }
+
+                    const response = await fetch(apiUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+                    const result = await response.json();
+                    let text = provider === 'gemini' ? result.candidates?.[0]?.content?.parts?.[0]?.text : result.choices?.[0]?.message?.content;
+                    if (text) {
+                        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                        questions = JSON.parse(cleanText);
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            if (questions.length === 0) {
+                for (let i = 1; i <= count; i++) {
+                    questions.push({
+                        q: `${subject} fanidan "${topic}" bo'yicha ${i}-savol (${level}):`,
+                        options: [`To'g'ri javob ${i}`, 'Noto\'g\'ri A', 'Noto\'g\'ri B', 'Noto\'g\'ri C'],
+                        correct: 0
+                    });
+                }
+            }
+
+            const newTest = {
+                id: 't_ai_' + Date.now(),
+                title: `${subject}: ${topic} (${provider.toUpperCase()} AI)`,
+                subject,
+                teacher: window.appState.currentUser.name,
+                duration: 10,
+                isPaid: false,
+                promoCode: '',
+                questions
+            };
+
+            await window.dbSaveTest(newTest);
+            showToast('Muvaffaqiyatli!', 'AI testi bulutga saqlandi!', 'success');
+            window.renderApp();
+        }
+
+        window.deleteTest = async function(id) {
+            await window.dbDeleteTest(id);
+            showToast('O\'chirildi', 'Test bazadan olib tashlandi.', 'success');
+            window.renderApp();
+        }
+
+        function renderAdminPanel() {
+            const panel = document.createElement('div');
+            panel.className = 'space-y-8';
+
+            panel.innerHTML = `
+                <div class="rounded-3xl bg-gradient-to-r from-rose-600 to-violet-600 p-8 text-white shadow-xl shadow-rose-500/20">
+                    <span class="px-3 py-1 rounded-full bg-white/20 text-xs font-semibold uppercase tracking-wider backdrop-blur-md">Admin Paneli (Bulutli)</span>
+                    <h2 class="text-3xl font-bold mt-3">Xush kelibsiz, ${window.appState.currentUser.name}!</h2>
+                    <p class="text-rose-100 text-sm mt-2 leading-relaxed">Barcha foydalanuvchilar va testlar bazasini boshqaring.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-4">
+                        <h3 class="font-bold text-lg flex items-center justify-between">
+                            <span>Foydalanuvchilar</span>
+                            <span class="text-xs font-normal text-slate-400">Jami: ${window.appState.users.length} ta</span>
+                        </h3>
+                        <div class="space-y-3 max-h-96 overflow-y-auto pr-1" id="admin-users-list"></div>
+                    </div>
+
+                    <div class="glass p-6 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800 space-y-4">
+                        <h3 class="font-bold text-lg flex items-center justify-between">
+                            <span>Barcha Testlar</span>
+                            <span class="text-xs font-normal text-slate-400">Jami: ${window.appState.tests.length} ta</span>
+                        </h3>
+                        <div class="space-y-3 max-h-96 overflow-y-auto pr-1" id="admin-tests-list"></div>
+                    </div>
+                </div>
+            `;
+
+            const uList = panel.querySelector('#admin-users-list');
+            window.appState.users.forEach(user => {
+                const roleBadge = user.role === 'admin' ? 'bg-rose-500/10 text-rose-600' : (user.role === 'teacher' ? 'bg-amber-500/10 text-amber-600' : 'bg-indigo-500/10 text-indigo-600');
+                uList.innerHTML += `
+                    <div class="p-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                        <div>
+                            <h4 class="font-bold text-sm">${user.name}</h4>
+                            <p class="text-slate-400">Login: ${user.username}</p>
+                            <span class="inline-block mt-1 px-2 py-0.5 rounded font-bold uppercase tracking-wider text-[10px] ${roleBadge}">${user.role}</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            ${user.role !== 'admin' ? `
+                                <button onclick="toggleUserRole('${user.id}')" class="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 font-semibold hover:bg-slate-300 transition">
+                                    ${user.role === 'teacher' ? 'O\'quvchiga tushirish' : 'Ustoz qilish'}
+                                </button>
+                            ` : '<span class="text-slate-400 text-[10px]">Asosiy Admin</span>'}
+                        </div>
+                    </div>
+                `;
+            });
+
+            const tList = panel.querySelector('#admin-tests-list');
+            window.appState.tests.forEach(test => {
+                tList.innerHTML += `
+                    <div class="p-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                        <div>
+                            <span class="font-bold text-indigo-600">[${test.subject}]</span>
+                            <h4 class="font-bold text-sm mt-0.5">${test.title}</h4>
+                            <p class="text-slate-400">Ustoz: ${test.teacher} | Savollar: ${test.questions.length} ta</p>
+                        </div>
+                        <button onclick="deleteTest('${test.id}')" class="p-2 rounded-xl bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 transition">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+            });
+
+            return panel;
+        }
+
+        window.toggleUserRole = async function(userId) {
+            const user = window.appState.users.find(u => u.id === userId);
+            if (user) {
+                user.role = user.role === 'teacher' ? 'student' : 'teacher';
+                await window.dbSaveUser(user);
+                showToast('Yangilandi', `${user.name} ning roli ${user.role} qilindi.`, 'success');
+                window.renderApp();
+            }
+        }
+    </script>
+</body>
+</html>
